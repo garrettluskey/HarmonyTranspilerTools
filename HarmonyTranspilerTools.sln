@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29519.181
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HarmonyTranspilerTools", "HarmonyTranspilerTools\HarmonyTranspilerTools.csproj", "{EBC486F6-BC37-453B-895D-6DA22F4310DD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ILToolTests", "ILToolTests\ILToolTests.csproj", "{883C4A01-6063-41F4-A46B-E2EF2707E646}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{EBC486F6-BC37-453B-895D-6DA22F4310DD}.Debug|Any CPU.ActiveCfg = Release|Any CPU
+		{EBC486F6-BC37-453B-895D-6DA22F4310DD}.Debug|Any CPU.Build.0 = Release|Any CPU
+		{EBC486F6-BC37-453B-895D-6DA22F4310DD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EBC486F6-BC37-453B-895D-6DA22F4310DD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{883C4A01-6063-41F4-A46B-E2EF2707E646}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{883C4A01-6063-41F4-A46B-E2EF2707E646}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{883C4A01-6063-41F4-A46B-E2EF2707E646}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{883C4A01-6063-41F4-A46B-E2EF2707E646}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {74373EF2-CB9C-4445-8ED0-823B6FBF0569}
+	EndGlobalSection
+EndGlobal

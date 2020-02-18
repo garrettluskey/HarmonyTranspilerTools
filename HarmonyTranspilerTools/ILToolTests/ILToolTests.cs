@@ -14,6 +14,7 @@ namespace ILToolsTests
     {
         private int thing = 5;
         private int other = 6;
+        public int testVar;
 
         public bool SomeMethod()
         {
@@ -29,11 +30,22 @@ namespace ILToolsTests
             }
             return y;
         }
+
+        public void SetPrivateInstanceVariable()
+        {
+            thing = 1;
+        }
+
+        public void SetPublicInstanceVariable()
+        {
+            testVar = 10;
+        }
     }
 
     
     public class DummyModClass : DummyCompiledClass
     {
+        private int thing = 5;
         public void SearchStatement(int y)
         {
             y++;
@@ -57,6 +69,16 @@ namespace ILToolsTests
             return true;
         }
 
+        public void SetPrivateInstanceVariable()
+        {
+            thing = 2;
+        }
+
+        public void SetPublicInstanceVariable()
+        {
+            testVar = 20;
+        }
+
     }
 
     [HarmonyPatch(typeof(DummyCompiledClass))]
@@ -66,9 +88,11 @@ namespace ILToolsTests
         public static IEnumerable<CodeInstruction> ReplaceMethodTranspiler(IEnumerable<CodeInstruction> instr)
         {
             MethodInfo info = typeof(DummyModClass).GetMethod("SomeMethod");
-            
-            List<CodeInstruction> newInstr = ILTool.MethodToILInstructions(info);
-            return newInstr;
+
+            ILTool tool = new ILTool(instr);
+            tool.ReplaceMethod(info);
+
+            return tool.instructions;
         }
 
         /// <summary>
@@ -120,8 +144,6 @@ namespace ILToolsTests
 
             MethodInfo searchMethod = typeof(DummyModClass).GetMethod("SearchStatement");
             MethodInfo replacementMethod = typeof(DummyModClass).GetMethod("ReplacementStatement");
-
-            List<CodeInstruction> codeInstructions = ILTool.MethodToILInstructions(replacementMethod);
 
             ILTool parser = new ILTool(instructions);
 
@@ -182,6 +204,21 @@ namespace ILToolsTests
 
             parser.RemoveCodeBlock(removeMethod);
 
+            return parser.instructions;
+        }
+
+        public static IEnumerable<CodeInstruction> SetPublicInstanceVariableTranspiler(IEnumerable<CodeInstruction> instr)
+        {
+            MethodInfo info = typeof(DummyModClass).GetMethod("SetPublicInstanceVariable");
+            List<CodeInstruction> newInstr = ILTool.MethodToILInstructions(info);
+            return newInstr;
+        }
+
+        public static IEnumerable<CodeInstruction> SetPrivateInstanceVariableTranspiler(IEnumerable<CodeInstruction> instr)
+        {
+            MethodInfo info = typeof(DummyModClass).GetMethod("SetPrivateInstanceVariable");
+            ILTool parser = new ILTool(instr);
+            parser.ReplaceMethod(info);
             return parser.instructions;
         }
     }
@@ -324,6 +361,44 @@ namespace ILToolsTests
             Assert.AreEqual(yValue, compiledClass.ComplexMethod(yValue));
         }
 
+        [TestMethod]
+        public void SetPublicInstanceVariableTest()
+        {
+            DummyCompiledClass compiledClass = new DummyCompiledClass();
+
+            MethodInfo methodToReplace = typeof(DummyCompiledClass).GetMethod("SetPublicInstanceVariable");
+            MethodInfo transpiler = typeof(DummyHarmonyClass).GetMethod("SetPublicInstanceVariableTranspiler");
+
+            compiledClass.SetPublicInstanceVariable();
+            Assert.AreEqual(10, compiledClass.testVar);
+
+            harmony.Patch(methodToReplace, transpiler: new HarmonyMethod(transpiler));
+
+            compiledClass.SetPublicInstanceVariable();
+            Assert.AreEqual(20, compiledClass.testVar);
+        }
+
+        [TestMethod]
+        public void SetPrivateInstanceVariableTest()
+        {
+            DummyCompiledClass compiledClass = new DummyCompiledClass();
+
+            MethodInfo methodToReplace = typeof(DummyCompiledClass).GetMethod("SetPrivateInstanceVariable");
+            MethodInfo transpiler = typeof(DummyHarmonyClass).GetMethod("SetPrivateInstanceVariableTranspiler");
+
+            int privateVar;
+            compiledClass.SetPrivateInstanceVariable();
+            privateVar = (int)compiledClass.GetType().GetField("thing", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(compiledClass);
+            Assert.AreEqual(1, privateVar);
+
+            harmony.Patch(methodToReplace, transpiler: new HarmonyMethod(transpiler));
+
+            compiledClass.SetPrivateInstanceVariable();
+            privateVar = (int)compiledClass.GetType().GetField("thing", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(compiledClass);
+            Assert.AreEqual(2, privateVar);
+        }
+
+
         //[TestMethod]
         //public void PrintIL()
         //{
@@ -336,6 +411,6 @@ namespace ILToolsTests
         //    ILTool.MethodToILInstructions(complexMethod).Do(x => Trace.WriteLine(x));
         //}
 
-        
+
     }
 }

@@ -4,6 +4,7 @@ using Harmony;
 using Harmony.ILCopying;
 using System.Reflection.Emit;
 using System.Reflection;
+using System.Diagnostics;
 
 namespace HarmonyTranspilerTools
 {
@@ -47,16 +48,15 @@ namespace HarmonyTranspilerTools
 		/// </remarks>
 		public static List<CodeInstruction> MethodToILInstructions(MethodBase method)
 		{
-			DynamicMethod dynamicMethod = DynamicTools.CreateDynamicMethod(method, "_ILParser");
+			DynamicMethod dynamicMethod = DynamicTools.CreateDynamicMethod(method, "_ILTools");
 			if (dynamicMethod == null)
 			{
 				return null;
 			}
 
-			// Get il generato
+			// Get il generator
 			ILGenerator il = dynamicMethod.GetILGenerator();
 			LocalBuilder[] existingVariables = DynamicTools.DeclareLocalVariables(method, il);
-			Dictionary<string, LocalBuilder> privateVars = new Dictionary<string, LocalBuilder>();
 
 			MethodBodyReader reader = new MethodBodyReader(method, il);
 			reader.DeclareVariables(existingVariables);
@@ -130,10 +130,56 @@ namespace HarmonyTranspilerTools
 			return (OpCode)MIReplaceShortJumps.Invoke(null, new object[] { opCode });
 		}
 
-		public List<CodeInstruction> instructions { get; private set; }
-		public ILTool(List<CodeInstruction> instructions)
+		
+
+		public List<CodeInstruction> instructions
 		{
+			get { return instructions; }
+			private set
+			{
+				instructions = ReplaceVarsWithSameName(value);
+			}
+		}
+
+		public List<FieldInfo> variables = new List<FieldInfo>();
+		public ILTool(IEnumerable<CodeInstruction> instr)
+		{
+			List<CodeInstruction> instructions = new List<CodeInstruction>(instr);
+			foreach (CodeInstruction instruction in instructions)
+			{
+				if (instruction.operand != null && instruction.operand is FieldInfo)
+				{
+					variables.Add((FieldInfo)instruction.operand);
+				}
+			}
 			this.instructions = instructions;
+		}
+
+
+		/// <summary>
+		/// Replace declared variables with compiled variables
+		/// </summary>
+		/// <param name="instr"></param>
+		/// <returns></returns>
+		private List<CodeInstruction> ReplaceVarsWithSameName(List<CodeInstruction> instructions)
+		{
+			// Replace declared variables with compiled variables
+			for (int i = 0; i < instructions.Count; i++)
+			{
+				if (instructions[i].operand != null && instructions[i].operand is FieldInfo)
+				{
+					FieldInfo operand = (FieldInfo)instructions[i].operand;
+					variables.Do(x =>
+					{
+						if (x.Name == operand.Name)
+						{
+							instructions[i].operand = x;
+						}
+					});
+				}
+			}
+
+			return instructions;
 		}
 
 
@@ -185,7 +231,7 @@ namespace HarmonyTranspilerTools
 		}
 
 		/// <summary>
-		/// Replaces all instances of codeBlockToFind with replacementCodeBlock
+		/// Replaces all instances of codeBlockToFind with replacementCodeBlock.
 		/// </summary>
 		/// <param name="codeBlockToFind"></param>
 		/// <param name="replacementCodeBlock"></param>
@@ -202,7 +248,7 @@ namespace HarmonyTranspilerTools
 		}
 
 		/// <summary>
-		/// Removes given code block from instructions
+		/// Remove all instances of codeBlockToFind from instructions.
 		/// </summary>
 		/// <param name="codeBlockToFind">Code block to remove for in instructions list</param>
 		/// <remarks>This method removes entry nop and void return from codeBlockToFind statements</remarks>

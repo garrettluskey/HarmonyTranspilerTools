@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using Harmony;
-using Harmony.ILCopying;
+using HarmonyLib;
 using System.Reflection.Emit;
 using System.Reflection;
 using System.Diagnostics;
@@ -25,7 +24,15 @@ namespace HarmonyTranspilerTools
 			return val.start == start && val.end == end;
 		}
 
-		public override string ToString()
+        public override int GetHashCode()
+        {
+            int hashCode = 1075529825;
+            hashCode = hashCode * -1521134295 + start.GetHashCode();
+            hashCode = hashCode * -1521134295 + end.GetHashCode();
+            return hashCode;
+        }
+
+        public override string ToString()
 		{
 			return start.ToString() + ", " + end.ToString();
 		}
@@ -33,11 +40,13 @@ namespace HarmonyTranspilerTools
 
     public class ILTool
     {
-		private static MethodInfo MIReplaceShortJumps = typeof(CodeTranspiler).GetMethod("ReplaceShortJumps", BindingFlags.NonPublic | BindingFlags.Static);
-		private static FieldInfo FIilInstructions = typeof(MethodBodyReader).GetField("ilInstructions", BindingFlags.NonPublic | BindingFlags.Instance);
+		private static readonly Assembly a_Harmony = Assembly.GetAssembly(typeof(Harmony));
+
+		private static Type t_MethodBodyReader = a_Harmony.GetType("HarmonyLib.MethodBodyReader");
+		private static Type t_Emitter = a_Harmony.GetType("HarmonyLib.Emitter");
 
 		/// <summary>
-		/// Compiles a method into IL instructions.
+		/// Compiles a method into IL instructions exactly the same as the Harmony transpiler.
 		/// </summary>
 		/// <param name="method">Method to compile.</param>
 		/// <returns>
@@ -48,98 +57,61 @@ namespace HarmonyTranspilerTools
 		/// </remarks>
 		public static List<CodeInstruction> MethodToILInstructions(MethodBase method)
 		{
-			DynamicMethod dynamicMethod = DynamicTools.CreateDynamicMethod(method, "_ILTools");
-			if (dynamicMethod == null)
-			{
-				return null;
-			}
+            // Get il generator
+            ILGenerator il_gen = PatchProcessor.CreateILGenerator(method);
 
-			// Get il generator
-			ILGenerator il = dynamicMethod.GetILGenerator();
-			LocalBuilder[] existingVariables = DynamicTools.DeclareLocalVariables(method, il);
+            List<Label> labels = new List<Label>();
+			List<MethodInfo> transpilers = new List<MethodInfo>();
+			bool hasReturn = false;
 
-			MethodBodyReader reader = new MethodBodyReader(method, il);
-			reader.DeclareVariables(existingVariables);
-			reader.ReadInstructions();
+			// internal Emitter(ILGenerator il, bool debug)
+			object emitter = Activator.CreateInstance(
+				t_Emitter,
+				BindingFlags.NonPublic | BindingFlags.Instance,
+				null,
+				new object[] { il_gen, true },
+				null);
 
-			List<ILInstruction> ilInstructions = (List<ILInstruction>)FIilInstructions.GetValue(reader);
+			// internal MethodBodyReader(MethodBase method, ILGenerator generator)
+			object methodBodyReader = Activator.CreateInstance(
+				t_MethodBodyReader,
+				BindingFlags.NonPublic | BindingFlags.Instance,
+				null,
+				new object[] { method, il_gen },
+				null);
 
-			// Defines function start label
-			il.DefineLabel();
+			// internal void DeclareVariables(LocalBuilder[] existingVariables)
+			t_MethodBodyReader.GetMethod("DeclareVariables", BindingFlags.NonPublic | BindingFlags.Instance)
+				.Invoke(methodBodyReader, new object[] { null });
 
-			// Define labels
-			foreach (ILInstruction ilInstruction in ilInstructions)
-			{
-				switch (ilInstruction.opcode.OperandType)
-				{
-					case OperandType.InlineSwitch:
-						{
-							ILInstruction[] array = ilInstruction.operand as ILInstruction[];
-							if (array != null)
-							{
-								List<Label> labels = new List<Label>();
-								ILInstruction[] array2 = array;
-								foreach (ILInstruction iLInstruction2 in array2)
-								{
-									Label item = il.DefineLabel();
-									iLInstruction2.labels.Add(item);
-									labels.Add(item);
-								}
-								ilInstruction.argument = labels.ToArray();
-							}
-							break;
-						}
-					case OperandType.InlineBrTarget:
-					case OperandType.ShortInlineBrTarget:
-						{
-							ILInstruction iLInstruction = ilInstruction.operand as ILInstruction;
-							if (iLInstruction != null)
-							{
-								Label label2 = il.DefineLabel();
-								iLInstruction.labels.Add(label2);
-								ilInstruction.argument = label2;
-							}
-							break;
-						}
-				}
-			}
+			// internal void ReadInstructions()
+			t_MethodBodyReader.GetMethod("ReadInstructions", BindingFlags.NonPublic | BindingFlags.Instance)
+				.Invoke(methodBodyReader, new object[0]);
 
-			// Transpile code
-			CodeTranspiler codeTranspiler = new CodeTranspiler(ilInstructions);
-			List<CodeInstruction> result = codeTranspiler.GetResult(il, method);
+			// internal List<CodeInstruction> FinalizeILCodes(Emitter emitter, List<MethodInfo> transpilers, List<Label> endLabels, out bool hasReturnCode)
+			List<CodeInstruction> generated_instructions = (List<CodeInstruction>)t_MethodBodyReader
+				.GetMethod("FinalizeILCodes", BindingFlags.NonPublic | BindingFlags.Instance)
+				.Invoke(methodBodyReader, new object[] { emitter, transpilers, labels, hasReturn });
 
-			// Replace debug commands with normal
-			foreach (CodeInstruction codeInstruction in result)
-			{
-				OpCode opCode = codeInstruction.opcode;
+			// Add final return statement as harmony adds it manually after???
+			generated_instructions.Add(new CodeInstruction(OpCodes.Ret, null));
 
-				codeInstruction.opcode = ReplaceShortJumps(opCode);
-			}
-
-			return result;
-
+			return generated_instructions;
 		}
 
-		/// <summary>
-		/// Replaces debug commands with matching non-debug commands
-		/// </summary>
-		/// <param name="opCode">Code to change</param>
-		/// <returns>Non-debug opcode</returns>
-		public static OpCode ReplaceShortJumps(OpCode opCode)
-		{
-			return (OpCode)MIReplaceShortJumps.Invoke(null, new object[] { opCode });
-		}
 
-		
+        private List<CodeInstruction> _instructions = new List<CodeInstruction>();
 
 		public List<CodeInstruction> instructions
 		{
-			get { return instructions; }
+			get { return _instructions; }
 			private set
 			{
-				instructions = ReplaceVarsWithSameName(value);
+				_instructions = ReplaceVarsWithSameName(value);
 			}
 		}
+
+		
 
 		public List<FieldInfo> variables = new List<FieldInfo>();
 		public ILTool(IEnumerable<CodeInstruction> instr)
@@ -183,90 +155,90 @@ namespace HarmonyTranspilerTools
 		}
 
 
-		/// <summary>
-		/// Replaces an entire function with another
-		/// </summary>
-		/// <param name="method">Method used for replacement</param>
-		public void ReplaceMethod(MethodInfo method)
-		{
-			instructions = MethodToILInstructions(method);
-		}
+        /// <summary>
+        /// Replaces an entire function with another
+        /// </summary>
+        /// <param name="method">Method used for replacement</param>
+        public void ReplaceMethod(MethodInfo method)
+        {
+            instructions = MethodToILInstructions(method);
+        }
 
-		/// <summary>
-		/// Places additional CodeBlock statements after all instances of codeBlockToFind statements.
-		/// </summary>
-		/// <param name="codeBlockToFind">Code block to search for in instructions list</param>
-		/// <param name="additionCodeBlock">Code block to add in instructions list</param>
-		/// <remarks>This method removes entry nop and void return from additionCodeBlock statements</remarks>
-		public void AddCodeBlockAfter(MethodInfo codeBlockToFind, MethodInfo additionCodeBlock)
-		{
-			List<CodeInstruction> instructionsToFind = MethodToILInstructions(codeBlockToFind);
-			List<CodeInstruction> instructionAddition = MethodToILInstructions(additionCodeBlock);
+        /// <summary>
+        /// Places additional CodeBlock statements after all instances of codeBlockToFind statements.
+        /// </summary>
+        /// <param name="codeBlockToFind">Code block to search for in instructions list</param>
+        /// <param name="additionCodeBlock">Code block to add in instructions list</param>
+        /// <remarks>This method removes entry nop and void return from additionCodeBlock statements</remarks>
+        public void AddCodeBlockAfter(MethodInfo codeBlockToFind, MethodInfo additionCodeBlock)
+        {
+            List<CodeInstruction> instructionsToFind = MethodToILInstructions(codeBlockToFind);
+            List<CodeInstruction> instructionAddition = MethodToILInstructions(additionCodeBlock);
 
-			instructionsToFind = MethodCleaner.RemoveEntryAndReturn(instructionsToFind);
-			instructionAddition = MethodCleaner.RemoveEntryAndReturn(instructionAddition);
+            instructionsToFind = MethodCleaner.RemoveEntryAndReturn(instructionsToFind);
+            instructionAddition = MethodCleaner.RemoveEntryAndReturn(instructionAddition);
 
-			instructionAddition.AddRange(instructionsToFind);
+            instructionAddition.AddRange(instructionsToFind);
 
-			ReplaceInstancesInList(instructionsToFind, instructionAddition);
-		}
+            ReplaceInstancesInList(instructionsToFind, instructionAddition);
+        }
 
-		/// <summary>
-		/// Places additional CodeBlock statements before all instances of codeBlockToFind statements.
-		/// </summary>
-		/// <param name="codeBlockToFind">Code block to search for in instructions list</param>
-		/// <param name="additionCodeBlock">Code block to add in instructions list</param>
-		/// <remarks>This method removes entry nop and void return from additionCodeBlock statements</remarks>
-		public void AddCodeBlockBefore(MethodInfo codeBlockToFind, MethodInfo additionCodeBlock)
-		{
-			List<CodeInstruction> instructionsToFind = MethodToILInstructions(codeBlockToFind);
-			List<CodeInstruction> instructionAddition = MethodToILInstructions(additionCodeBlock);
+        /// <summary>
+        /// Places additional CodeBlock statements before all instances of codeBlockToFind statements.
+        /// </summary>
+        /// <param name="codeBlockToFind">Code block to search for in instructions list</param>
+        /// <param name="additionCodeBlock">Code block to add in instructions list</param>
+        /// <remarks>This method removes entry nop and void return from additionCodeBlock statements</remarks>
+        public void AddCodeBlockBefore(MethodInfo codeBlockToFind, MethodInfo additionCodeBlock)
+        {
+            List<CodeInstruction> instructionsToFind = MethodToILInstructions(codeBlockToFind);
+            List<CodeInstruction> instructionAddition = MethodToILInstructions(additionCodeBlock);
 
-			instructionsToFind = MethodCleaner.RemoveEntryAndReturn(instructionsToFind);
-			instructionAddition = MethodCleaner.RemoveEntryAndReturn(instructionAddition);
+            instructionsToFind = MethodCleaner.RemoveEntryAndReturn(instructionsToFind);
+            instructionAddition = MethodCleaner.RemoveEntryAndReturn(instructionAddition);
 
-			instructionAddition.InsertRange(0, instructionsToFind);
+            instructionAddition.InsertRange(0, instructionsToFind);
 
-			ReplaceInstancesInList(instructionsToFind, instructionAddition);
-		}
+            ReplaceInstancesInList(instructionsToFind, instructionAddition);
+        }
 
-		/// <summary>
-		/// Replaces all instances of codeBlockToFind with replacementCodeBlock.
-		/// </summary>
-		/// <param name="codeBlockToFind"></param>
-		/// <param name="replacementCodeBlock"></param>
-		public void ReplaceAllCodeBlocks(MethodInfo codeBlockToFind, MethodInfo replacementCodeBlock)
-		{
-			List<CodeInstruction> instructionsToFind = MethodToILInstructions(codeBlockToFind);
-			List<CodeInstruction> instructionReplacement = MethodToILInstructions(replacementCodeBlock);
+        /// <summary>
+        /// Replaces all instances of codeBlockToFind with replacementCodeBlock.
+        /// </summary>
+        /// <param name="codeBlockToFind"></param>
+        /// <param name="replacementCodeBlock"></param>
+        public void ReplaceAllCodeBlocks(MethodInfo codeBlockToFind, MethodInfo replacementCodeBlock)
+        {
+            List<CodeInstruction> instructionsToFind = MethodToILInstructions(codeBlockToFind);
+            List<CodeInstruction> instructionReplacement = MethodToILInstructions(replacementCodeBlock);
 
-			instructionsToFind = MethodCleaner.RemoveEntryAndReturn(instructionsToFind);
-			instructionReplacement = MethodCleaner.RemoveEntryAndReturn(instructionReplacement);
+            instructionsToFind = MethodCleaner.RemoveEntryAndReturn(instructionsToFind);
+            instructionReplacement = MethodCleaner.RemoveEntryAndReturn(instructionReplacement);
 
-			ReplaceInstancesInList(instructionsToFind, instructionReplacement);
+            ReplaceInstancesInList(instructionsToFind, instructionReplacement);
 
-		}
+        }
 
-		/// <summary>
-		/// Remove all instances of codeBlockToFind from instructions.
-		/// </summary>
-		/// <param name="codeBlockToFind">Code block to remove for in instructions list</param>
-		/// <remarks>This method removes entry nop and void return from codeBlockToFind statements</remarks>
-		public void RemoveCodeBlock(MethodInfo codeBlockToRemove)
-		{
-			List<CodeInstruction> instructionsToFind = MethodToILInstructions(codeBlockToRemove);
+        /// <summary>
+        /// Remove all instances of codeBlockToFind from instructions.
+        /// </summary>
+        /// <param name="codeBlockToFind">Code block to remove for in instructions list</param>
+        /// <remarks>This method removes entry nop and void return from codeBlockToFind statements</remarks>
+        public void RemoveCodeBlock(MethodInfo codeBlockToRemove)
+        {
+            List<CodeInstruction> instructionsToFind = MethodToILInstructions(codeBlockToRemove);
 
-			instructionsToFind = MethodCleaner.RemoveEntryAndReturn(instructionsToFind);
+            instructionsToFind = MethodCleaner.RemoveEntryAndReturn(instructionsToFind);
 
-			ReplaceInstancesInList(instructionsToFind, new List<CodeInstruction>());
-		}
+            ReplaceInstancesInList(instructionsToFind, new List<CodeInstruction>());
+        }
 
-		/// <summary>
-		/// Finds all instances in code instruction list and replaces them with the given replacement
-		/// </summary>
-		/// <param name="query">Statement to find and replace</param>
-		/// <param name="replacement">Statement use to replace queried instances</param>
-		private void ReplaceInstancesInList(List<CodeInstruction> query, List<CodeInstruction> replacement)
+        /// <summary>
+        /// Finds all instances in code instruction list and replaces them with the given replacement
+        /// </summary>
+        /// <param name="query">Statement to find and replace</param>
+        /// <param name="replacement">Statement use to replace queried instances</param>
+        private void ReplaceInstancesInList(List<CodeInstruction> query, List<CodeInstruction> replacement)
 		{
 			List<CodeInstruction> finalList = new List<CodeInstruction>();
 			for (int i = 0; i < instructions.Count; i++)

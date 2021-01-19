@@ -2,8 +2,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Reflection;
 using System.Reflection.Emit;
-using Harmony;
-using Harmony.ILCopying;
+using HarmonyLib;
 using System.Collections.Generic;
 using System.Diagnostics;
 using HarmonyTranspilerTools;
@@ -69,12 +68,12 @@ namespace ILToolsTests
             return true;
         }
 
-        public void SetPrivateInstanceVariable()
+        public new void SetPrivateInstanceVariable()
         {
             thing = 2;
         }
 
-        public void SetPublicInstanceVariable()
+        public new void SetPublicInstanceVariable()
         {
             testVar = 20;
         }
@@ -105,6 +104,7 @@ namespace ILToolsTests
         {
             // Complex method is used 
             MethodInfo methodToCompare = typeof(DummyCompiledClass).GetMethod("ComplexMethod");
+
             List<CodeInstruction> helperInstructions = ILTool.MethodToILInstructions(methodToCompare);
             List<CodeInstruction> harmonyInstructions = (List<CodeInstruction>)instr;
 
@@ -226,7 +226,7 @@ namespace ILToolsTests
     [TestClass]
     public class ILGenerationTest
     {
-        public static HarmonyInstance harmony = HarmonyInstance.Create("testing.ILGenerationTest");
+        public static Harmony harmony = new Harmony("testing.ILGenerationTest");
 
         [TestCleanup]
         public void Cleanup()
@@ -255,7 +255,7 @@ namespace ILToolsTests
         [TestMethod]
         public void HelperCompileIL()
         {
-            HarmonyInstance harmony = HarmonyInstance.Create("testing.CompileIL");
+            Harmony harmony = new Harmony("testing.CompileIL");
             MethodInfo methodToReplace = typeof(DummyCompiledClass).GetMethod("ComplexMethod");
             MethodInfo transpiler = typeof(DummyHarmonyClass).GetMethod("ILComparison");
             harmony.Patch(methodToReplace, transpiler: new HarmonyMethod(transpiler));
@@ -399,17 +399,17 @@ namespace ILToolsTests
         }
 
 
-        //[TestMethod]
-        //public void PrintIL()
-        //{
-        //    MethodInfo thingMethod = typeof(DummyModClass).GetMethod("toFindStatement");
-        //    MethodInfo complexMethod = typeof(DummyCompiledClass).GetMethod("ComplexMethod");
-        //    Trace.WriteLine("--SomeMethod--");
-        //    ILTool.MethodToILInstructions(thingMethod).Do(x => Trace.WriteLine(x));
-        //    Trace.WriteLine("");
-        //    Trace.WriteLine("--ComplexMethod--");
-        //    ILTool.MethodToILInstructions(complexMethod).Do(x => Trace.WriteLine(x));
-        //}
+        [TestMethod]
+        public void PrintIL()
+        {
+            MethodInfo thingMethod = typeof(DummyModClass).GetMethod("SearchStatement");
+            MethodInfo complexMethod = typeof(DummyCompiledClass).GetMethod("ComplexMethod");
+            Trace.WriteLine("--SomeMethod--");
+            ILTool.MethodToILInstructions(thingMethod).Do(x => Trace.WriteLine(x));
+            Trace.WriteLine("");
+            Trace.WriteLine("--ComplexMethod--");
+            ILTool.MethodToILInstructions(complexMethod).Do(x => Trace.WriteLine(x));
+        }
 
 
     }
